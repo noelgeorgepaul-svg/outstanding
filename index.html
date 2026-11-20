@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outstanding Balances Portal | Kiwiland Trades</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+    <!-- Configure Tailwind with Forest/River Theme -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'forest-dark': '#112a22',
+                        'forest-green': '#2d5a27',
+                        'forest-light': '#4b8253',
+                        'river-teal': '#1a4341',
+                        'river-teal-light': '#2b6b68',
+                        'river-bg': '#e6f0eb',
+                        'accent-gold': '#d4af37',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #e6f0eb; /* river-bg */
+            color: #112a22; /* forest-dark */
+        }
+
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4b8253; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #1a4341; 
+        }
+
+        /* Print Styles */
+        @media print {
+            @page { margin: 10mm; size: A4 portrait; }
+            body { background-color: white !important; margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .print-card {
+                box-shadow: none !important;
+                border: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            .print-table th {
+                background-color: #2d5a27 !important;
+                color: white !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            .print-table tr:nth-child(even) {
+                background-color: #f8faf9 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+        .print-only { display: none; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center antialiased">
+
+    <!-- Error/Message Box -->
+    <div id="messageBox" class="hidden fixed top-5 z-50 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg max-w-md w-full flex justify-between items-center transition-all">
+        <span id="messageText" class="font-medium"></span>
+        <button onclick="document.getElementById('messageBox').classList.add('hidden')" class="text-red-700 font-bold ml-4">&times;</button>
+    </div>
+
+    <div class="w-full max-w-6xl space-y-6">
+        
+        <!-- App Header -->
+        <header class="text-center no-print flex flex-col items-center space-y-4">
+            <img src="Logo.png" alt="Kiwiland Trades Logo" class="h-24 drop-shadow-md rounded-xl" onerror="this.src='https://placehold.co/400x400/e6f0eb/2d5a27?text=Kiwiland+Logo'">
+            <h1 class="text-4xl font-extrabold tracking-tight text-forest-green">Outstanding Balances Portal</h1>
+            <p class="text-river-teal font-medium">Upload your CSV to track orders, aging, and customer statements.</p>
+        </header>
+
+        <!-- Controls Section -->
+        <section class="bg-white p-6 rounded-2xl shadow-lg no-print border-t-4 border-river-teal">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
+                <!-- File Upload -->
+                <div class="flex flex-col space-y-2 md:col-span-5">
+                    <label class="font-bold text-forest-dark text-sm uppercase tracking-wide">1. Upload CSV</label>
+                    <input type="file" id="csvFileInput" accept=".csv" 
+                        class="block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0
+                        file:text-sm file:font-bold file:bg-forest-green file:text-white
+                        hover:file:bg-river-teal transition-all file:cursor-pointer
+                        bg-gray-50 rounded-lg border border-gray-200 cursor-pointer">
+                </div>
+
+                <!-- Global Search -->
+                <div class="flex flex-col space-y-2 md:col-span-4">
+                    <label class="font-bold text-forest-dark text-sm uppercase tracking-wide">2. Search</label>
+                    <input type="text" id="searchInput" disabled placeholder="Await Upload..."
+                        class="block w-full py-2.5 px-4 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 
+                        focus:border-forest-green focus:ring-forest-green focus:outline-none focus:ring-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                </div>
+
+                <!-- Print Button -->
+                <div class="flex flex-col space-y-2 md:col-span-3">
+                    <label class="font-bold text-forest-dark text-sm uppercase tracking-wide opacity-0 hidden md:block">Action</label>
+                    <button id="printBtn" disabled onclick="window.print()" title="Open a specific customer statement to print"
+                        class="w-full py-2.5 px-4 bg-gray-300 text-gray-500 font-bold rounded-lg shadow-sm 
+                        transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        <span>Print Statement</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Initial Empty State -->
+        <div id="emptyState" class="text-center py-16 no-print">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-forest-green/10 rounded-full mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-forest-green" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-forest-dark">Ready to Analyze</h2>
+            <p class="mt-2 opacity-80 text-river-teal max-w-md mx-auto">Please upload your <code>orders-20-11-2026.csv</code> to view dashboard metrics and generate statements.</p>
+        </div>
+
+        <!-- Dashboard Section -->
+        <section id="dashboardArea" class="hidden no-print grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- Card 1: Totals -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-forest-green flex flex-col justify-center">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-lg font-bold text-forest-dark uppercase tracking-wider flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-forest-light" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" /></svg>
+                        Financial Overview
+                    </h2>
+                    <select id="financialFilter" onchange="applyFinancialFilter()" class="bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-forest-green focus:border-forest-green block p-1.5 outline-none cursor-pointer">
+                        <option value="all">All Time</option>
+                        <option value="month">Month</option>
+                        <option value="3months">3 Months</option>
+                        <option value="year">Year</option>
+                        <option value="fy">Financial Year (Apr-Mar)</option>
+                    </select>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 flex justify-between items-center">
+                        <span id="salesLabel" class="text-gray-500 font-bold uppercase text-sm tracking-wide">Total Sales (All Time)</span>
+                        <span id="dashTotalSales" class="text-2xl font-black text-river-teal"></span>
+                    </div>
+                    
+                    <button onclick="viewCustomerBreakdown()" class="w-full bg-red-50/50 hover:bg-red-50 p-4 rounded-xl border border-red-100 flex justify-between items-center transition-all group shadow-sm hover:shadow-md text-left">
+                        <div>
+                            <span class="text-red-700 font-bold uppercase text-sm tracking-wide block mb-1">Total Outstanding</span>
+                            <span class="text-xs text-red-500 group-hover:text-red-600">Click to view breakdown by customer</span>
+                        </div>
+                        <span id="dashTotalOwing" class="text-3xl font-black text-red-700"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 2: Age & Flagged Combined -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg border-t-4 border-river-teal-light flex flex-col h-96 lg:h-[28rem]">
+                <h2 class="text-lg font-bold text-forest-dark mb-4 uppercase tracking-wider flex justify-between items-center">
+                    <span class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-river-teal-light" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
+                        Age of Owing & Flagged Orders
+                    </span>
+                </h2>
+                
+                <!-- Buckets -->
+                <div class="grid grid-cols-5 gap-2 mb-4 shrink-0">
+                    <button onclick="selectBucket('< 2M')" id="btn-< 2M" class="bucket-btn p-2 rounded-lg bg-gray-50 border border-gray-200 text-center hover:bg-forest-light hover:text-white transition-colors text-xs font-bold text-gray-600">
+                        <div class="mb-1 truncate">< 2 Mos</div>
+                        <div id="amt-< 2M" class="text-[10px] sm:text-xs"></div>
+                    </button>
+                    <button onclick="selectBucket('2M+')" id="btn-2M+" class="bucket-btn p-2 rounded-lg bg-gray-50 border border-gray-200 text-center hover:bg-forest-light hover:text-white transition-colors text-xs font-bold text-gray-600">
+                        <div class="mb-1 truncate">2 Mos+</div>
+                        <div id="amt-2M+" class="text-[10px] sm:text-xs"></div>
+                    </button>
+                    <button onclick="selectBucket('3M+')" id="btn-3M+" class="bucket-btn p-2 rounded-lg bg-orange-50 border border-orange-200 text-center hover:bg-orange-500 hover:text-white transition-colors text-xs font-bold text-orange-700">
+                        <div class="mb-1 truncate">3 Mos+</div>
+                        <div id="amt-3M+" class="text-[10px] sm:text-xs"></div>
+                    </button>
+                    <button onclick="selectBucket('4M+')" id="btn-4M+" class="bucket-btn p-2 rounded-lg bg-red-50 border border-red-200 text-center hover:bg-red-500 hover:text-white transition-colors text-xs font-bold text-red-700">
+                        <div class="mb-1 truncate">4 Mos+</div>
+                        <div id="amt-4M+" class="text-[10px] sm:text-xs"></div>
+                    </button>
+                    <button onclick="selectBucket('6M+')" id="btn-6M+" class="bucket-btn p-2 rounded-lg bg-red-100 border border-red-300 text-center hover:bg-red-600 hover:text-white transition-colors text-xs font-bold text-red-800">
+                        <div class="mb-1 truncate">6 Mos+</div>
+                        <div id="amt-6M+" class="text-[10px] sm:text-xs"></div>
+                    </button>
+                </div>
+
+                <!-- Orders List inside bucket -->
+                <div class="flex-1 bg-gray-50 rounded-xl border border-gray-100 p-2 overflow-hidden flex flex-col">
+                    <div class="flex justify-between items-center mb-2 px-2 shrink-0">
+                        <span id="bucketTitle" class="text-sm font-bold text-river-teal">Select a bucket above to view orders.</span>
+                    </div>
+                    <div id="bucketOrdersList" class="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                        <!-- Populated via JS -->
+                        <div class="h-full flex items-center justify-center text-gray-400 text-sm italic">No bucket selected.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Area -->
+        <main id="mainContentArea" class="hidden relative">
+            
+            <!-- Global Sort & Controls -->
+            <div id="sortControls" class="no-print bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center mb-4">
+                <div class="flex items-center gap-3">
+                    <span id="viewTitle" class="font-black text-xl text-forest-dark uppercase tracking-wide"></span>
+                    <button id="clearViewBtn" onclick="goBack()" class="hidden bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs px-3 py-1.5 rounded-full font-bold transition-colors">
+                        &larr; Back
+                    </button>
+                </div>
+                
+                <div class="flex items-center gap-2">
+                    <label class="text-sm font-bold text-gray-500 uppercase">Sort By:</label>
+                    <select id="globalSort" onchange="applySort()" class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-forest-green focus:border-forest-green block p-2 outline-none cursor-pointer">
+                        <option value="value-desc">Value (Highest First)</option>
+                        <option value="value-asc">Value (Lowest First)</option>
+                        <option value="age-desc">Age (Oldest First)</option>
+                        <option value="age-asc">Age (Newest First)</option>
+                        <option value="name-asc">Name (A-Z)</option>
+                        <option value="name-desc">Name (Z-A)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Table Container -->
+            <div id="printArea" class="bg-white p-0 md:p-8 rounded-2xl shadow-xl print-card overflow-hidden border-t-8 border-forest-green">
+                
+                <!-- Print Header -->
+                <div id="printHeader" class="hidden justify-between items-start mb-8 pb-6 border-b-2 border-gray-100 print:flex px-4 md:px-0 pt-4 md:pt-0">
+                    <div class="flex items-center gap-4">
+                        <img src="Logo.png" alt="Kiwiland Trades Logo" class="h-20" style="max-height: 80px;" onerror="this.src='https://placehold.co/400x400/e6f0eb/2d5a27?text=Kiwiland+Logo'">
+                        <div>
+                            <h2 class="text-3xl font-black text-forest-green uppercase tracking-wider">Statement</h2>
+                            <p class="text-gray-500 font-medium" id="statementDate"></p>
+                        </div>
+                    </div>
+                    <div class="text-right text-sm text-gray-500">
+                        <p class="font-bold text-forest-green text-lg">Kiwiland Trades LTD</p>
+                        <p>Accounts Department</p>
+                    </div>
+                </div>
+
+                <!-- Customer Summary -->
+                <div id="customerSummary" class="hidden flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-river-bg/50 p-6 rounded-xl border border-river-bg print:flex mx-4 md:mx-0">
+                    <div>
+                        <p class="text-sm text-river-teal font-bold uppercase tracking-widest mb-1">Customer / Company</p>
+                        <h3 id="displayCompanyName" class="text-2xl font-bold text-forest-dark"></h3>
+                    </div>
+                    <div class="text-left md:text-right bg-white px-6 py-4 rounded-xl shadow-sm border border-gray-100">
+                        <p class="text-sm text-gray-500 font-bold uppercase tracking-widest mb-1">Total Outstanding</p>
+                        <p id="displayTotalOwing" class="text-3xl font-black text-red-600"></p>
+                    </div>
+                </div>
+
+                <!-- Main Data Table -->
+                <div class="w-full overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse print-table min-w-[700px]">
+                        <thead id="tableHead">
+                            <!-- Dynamic Headers injected via JS -->
+                        </thead>
+                        <tbody id="tableBody" class="text-gray-700 divide-y divide-gray-100 bg-white text-sm">
+                            <!-- Dynamic Rows injected via JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Print Footer -->
+                <div class="mt-12 text-center text-sm text-gray-400 print-only hidden print:block">
+                    <p>Thank you for your business. Please process any outstanding payments promptly.</p>
+                    <p class="mt-1 font-semibold text-forest-green">Kiwiland Trades LTD</p>
+                </div>
+            </div>
+        </main>
+        
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // Set fixed current date context
+        const FIXED_CURRENT_DATE = new Date('2026-11-20T00:00:00');
+        document.getElementById('statementDate').textContent = FIXED_CURRENT_DATE.toLocaleDateString('en-NZ', { year: 'numeric', month: 'long', day: 'numeric' });
+        
+        // App State
+        let parsedData = [];
+        let viewMode = 'none'; // 'customer_breakdown', 'statement', 'search', 'none'
+        let previousView = 'none'; // remembers list view when drilling down into statements
+        let activeCustomer = null;
+        let activeBucket = null;
+        
+        // DOM Elements
+        const fileInput = document.getElementById('csvFileInput');
+        const searchInput = document.getElementById('searchInput');
+        const printBtn = document.getElementById('printBtn');
+        const sortSelect = document.getElementById('globalSort');
+        
+        const mainContentArea = document.getElementById('mainContentArea');
+        const viewTitle = document.getElementById('viewTitle');
+        const clearViewBtn = document.getElementById('clearViewBtn');
+        const tableHead = document.getElementById('tableHead');
+        const tableBody = document.getElementById('tableBody');
+        
+        // Formatters
+        const formatCurrency = (amt) => new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD' }).format(amt);
+        const parseCurrencyStr = (val) => {
+            if (!val) return 0;
+            if (typeof val === 'number') return val;
+            const parsed = parseFloat(val.replace(/[$,\s]/g, ''));
+            return isNaN(parsed) ? 0 : parsed;
+        };
+        
+        const showMessage = (msg) => {
+            document.getElementById('messageText').textContent = msg;
+            document.getElementById('messageBox').classList.remove('hidden');
+            setTimeout(() => document.getElementById('messageBox').classList.add('hidden'), 5000);
+        };
+
+        // Age Calculator & Bucket Assigner
+        const processDate = (dateString) => {
+            if (!dateString) return { display: 'N/A', ageDays: 0, bucket: '< 2M', ageString: '0 weeks', dateObj: null };
+            
+            let dateObj;
+            const parts = dateString.split(/[-/]/);
+            if (parts.length === 3) {
+                if (parts[2].length === 4) dateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+                else if (parts[0].length === 4) dateObj = new Date(`${parts[0]}-${parts[1]}-${parts[2]}T12:00:00`);
+                else dateObj = new Date(dateString);
+            } else {
+                dateObj = new Date(dateString);
+            }
+
+            if (isNaN(dateObj.getTime())) return { display: dateString, ageDays: 0, bucket: '< 2M', ageString: 'Unknown', dateObj: null };
+
+            const diffTime = Math.max(0, FIXED_CURRENT_DATE - dateObj);
+            const ageDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            
+            let bucket, ageString;
+            if (ageDays < 60) {
+                bucket = '< 2M';
+                ageString = `${Math.floor(ageDays/7)} weeks`;
+            } else if (ageDays < 90) {
+                bucket = '2M+';
+                ageString = `${(ageDays/30.44).toFixed(1)} mos`;
+            } else if (ageDays < 120) {
+                bucket = '3M+';
+                ageString = `${(ageDays/30.44).toFixed(1)} mos`;
+            } else if (ageDays < 180) {
+                bucket = '4M+';
+                ageString = `${(ageDays/30.44).toFixed(1)} mos`;
+            } else {
+                bucket = '6M+';
+                ageString = `${(ageDays/30.44).toFixed(1)} mos`;
+            }
+
+            const displayDate = dateObj.toLocaleDateString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric' });
+            return { display: displayDate, ageDays, bucket, ageString, dateObj };
+        };
+
+        // File Upload Handler
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            searchInput.disabled = true; searchInput.placeholder = "Processing CSV...";
+            
+            Papa.parse(file, {
+                header: true, skipEmptyLines: true, transformHeader: h => h.trim(),
+                complete: function(results) { processCSVData(results.data); },
+                error: function(err) { showMessage("Error parsing CSV: " + err.message); searchInput.placeholder = "Upload Failed"; }
+            });
+        });
+
+        function processCSVData(data) {
+            parsedData = [];
+            let totalOwing = 0; // all-time owing strictly for bucket sums
+            let bucketSums = { '< 2M': 0, '2M+': 0, '3M+': 0, '4M+': 0, '6M+': 0 };
+
+            data.forEach(row => {
+                const company = (row['Company'] || '').trim();
+                const customer = (row['Customer'] || '').trim();
+                const displayName = company || customer || 'Unknown Entity';
+                
+                const totalIncl = parseCurrencyStr(row['Total Incl'] || row['Total']);
+                const paidAmount = parseCurrencyStr(row['Paid Amount'] || row['Paid']);
+                const owing = totalIncl - paidAmount;
+                const ref = (row['Ref'] || row['Inv No'] || row['Invoice'] || 'N/A').trim();
+                const dateInfo = processDate(row['Created'] || row['Date'] || '');
+
+                const record = {
+                    displayName, company, customer, ref,
+                    totalIncl, paidAmount, owing,
+                    searchStr: `${displayName} ${ref}`.toLowerCase(),
+                    ...dateInfo
+                };
+
+                // Exclude Rules for Aging & Flagged Buckets
+                let excludeFromAge = false;
+                if (owing <= 20) {
+                    excludeFromAge = true; // Rounding/write-off exclusion
+                } else if (paidAmount === 0 && totalIncl < 100) {
+                    excludeFromAge = true; // Full order < $100 exclusion
+                }
+
+                if (excludeFromAge) {
+                    record.bucket = 'excluded';
+                }
+
+                parsedData.push(record);
+                
+                if (owing > 0.001) {
+                    totalOwing += owing;
+                    if (record.bucket !== 'excluded' && bucketSums[record.bucket] !== undefined) {
+                        bucketSums[record.bucket] += owing;
+                    }
+                }
+            });
+
+            // Trigger financial overview calculations based on default filter
+            applyFinancialFilter();
+
+            // Populate dashboard bucket quantities
+            Object.keys(bucketSums).forEach(b => {
+                document.getElementById(`amt-${b}`).textContent = formatCurrency(bucketSums[b]);
+            });
+
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('dashboardArea').classList.remove('hidden');
+            searchInput.disabled = false; searchInput.placeholder = "Search name or ref...";
+            
+            // Clear selections
+            clearView();
+            selectBucket(null); 
+        }
+
+        // Overview Financial Filtering
+        function applyFinancialFilter() {
+            const filterSelect = document.getElementById('financialFilter');
+            const filter = filterSelect.value;
+            const filterText = filterSelect.options[filterSelect.selectedIndex].text;
+            
+            let filteredSales = 0;
+            let filteredOwing = 0;
+            
+            // NZ FY Calculation (Fixed against 2026-11-20 context)
+            const currentFYStart = new Date('2026-04-01T00:00:00');
+            const currentFYEnd = new Date('2027-03-31T23:59:59');
+            
+            parsedData.forEach(r => {
+                let include = true;
+                if (!r.dateObj || isNaN(r.dateObj.getTime())) {
+                    include = (filter === 'all');
+                } else {
+                    if (filter === 'month') include = r.ageDays <= 30;
+                    else if (filter === '3months') include = r.ageDays <= 90;
+                    else if (filter === 'year') include = r.ageDays <= 365;
+                    else if (filter === 'fy') include = r.dateObj >= currentFYStart && r.dateObj <= currentFYEnd;
+                }
+                
+                if (include) {
+                    filteredSales += r.totalIncl;
+                    if (r.owing > 0.001) filteredOwing += r.owing;
+                }
+            });
+            
+            document.getElementById('salesLabel').textContent = `Total Sales (${filterText})`;
+            document.getElementById('dashTotalSales').textContent = formatCurrency(filteredSales);
+            document.getElementById('dashTotalOwing').textContent = formatCurrency(filteredOwing);
+        }
+
+        // Sorting Logic
+        function sortRecords(records, sortVal) {
+            return records.sort((a, b) => {
+                if (sortVal === 'name-asc') return a.displayName.localeCompare(b.displayName);
+                if (sortVal === 'name-desc') return b.displayName.localeCompare(a.displayName);
+                if (sortVal === 'value-desc') return b.owing - a.owing;
+                if (sortVal === 'value-asc') return a.owing - b.owing;
+                if (sortVal === 'age-desc') return b.ageDays - a.ageDays; 
+                if (sortVal === 'age-asc') return a.ageDays - b.ageDays;  
+                return 0;
+            });
+        }
+
+        function applySort() {
+            if (activeBucket) renderBucketOrders();
+            if (viewMode === 'customer_breakdown') renderCustomerBreakdown();
+            else if (viewMode === 'statement') renderStatement(activeCustomer);
+            else if (searchInput.value.trim().length > 0) handleSearch();
+        }
+
+        // View Management
+        function goBack() {
+            if (viewMode === 'statement') {
+                if (previousView === 'customer_breakdown') viewCustomerBreakdown();
+                else if (previousView === 'search') handleSearch();
+                else clearView();
+            } else if (viewMode === 'customer_breakdown' || viewMode === 'search') {
+                clearView();
+            }
+        }
+
+        function clearView() {
+            viewMode = 'none';
+            previousView = 'none';
+            activeCustomer = null;
+            searchInput.value = '';
+            mainContentArea.classList.add('hidden');
+            resetPrintUI();
+        }
+
+        function viewCustomerBreakdown() {
+            previousView = 'none';
+            viewMode = 'customer_breakdown';
+            activeCustomer = null;
+            searchInput.value = '';
+            resetPrintUI();
+            renderCustomerBreakdown();
+        }
+
+        function viewStatement(customerName, fromView) {
+            if (fromView) previousView = fromView;
+            viewMode = 'statement';
+            activeCustomer = customerName;
+            renderStatement(customerName);
+            mainContentArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // --- Render Functions ---
+
+        function renderCustomerBreakdown() {
+            mainContentArea.classList.remove('hidden');
+            viewTitle.textContent = "Customer Balances Breakdown";
+            clearViewBtn.innerHTML = "&larr; Back to Dashboard";
+            clearViewBtn.classList.remove('hidden');
+            
+            // Group data
+            const map = new Map();
+            parsedData.forEach(r => {
+                if (r.owing <= 0.001) return;
+                if (!map.has(r.displayName)) map.set(r.displayName, { displayName: r.displayName, owing: 0, ageDays: 0, orderCount: 0 });
+                const c = map.get(r.displayName);
+                c.owing += r.owing;
+                c.orderCount += 1;
+                if (r.ageDays > c.ageDays) c.ageDays = r.ageDays;
+            });
+            
+            let grouped = Array.from(map.values());
+            grouped = sortRecords(grouped, sortSelect.value);
+
+            tableHead.innerHTML = `
+                <tr class="bg-forest-green text-white text-xs md:text-sm uppercase tracking-wider">
+                    <th class="p-3 md:p-4 font-semibold whitespace-nowrap">Customer / Company</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Unpaid Orders</th>
+                    <th class="p-3 md:p-4 font-semibold text-right whitespace-nowrap">Total Owing</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Oldest Invoice</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Action</th>
+                </tr>
+            `;
+
+            tableBody.innerHTML = '';
+            if (grouped.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-500">No outstanding balances found.</td></tr>`;
+                return;
+            }
+
+            grouped.forEach(c => {
+                let ageStr = c.ageDays < 60 ? `${Math.floor(c.ageDays/7)} wks` : `${(c.ageDays/30.44).toFixed(1)} mos`;
+                let ageColor = c.ageDays > 60 ? 'text-red-600 font-bold' : 'text-gray-600';
+                
+                tableBody.innerHTML += `
+                    <tr onclick="viewStatement('${c.displayName.replace(/'/g, "\\'")}', 'customer_breakdown')" class="cursor-pointer hover:bg-river-bg/50 transition-colors border-b border-gray-100">
+                        <td class="p-3 md:p-4 font-semibold text-forest-dark">${c.displayName}</td>
+                        <td class="p-3 md:p-4 text-center text-gray-500">${c.orderCount}</td>
+                        <td class="p-3 md:p-4 text-right font-bold text-red-600">${formatCurrency(c.owing)}</td>
+                        <td class="p-3 md:p-4 text-center ${ageColor}">${ageStr}</td>
+                        <td class="p-3 md:p-4 text-center">
+                            <button class="pointer-events-none text-xs bg-forest-green text-white px-3 py-1.5 rounded-lg transition-colors shadow-sm">View Statement</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function renderStatement(customerName) {
+            mainContentArea.classList.remove('hidden');
+            viewTitle.textContent = "Customer Statement";
+            
+            if (previousView === 'customer_breakdown') clearViewBtn.innerHTML = "&larr; Back to Breakdown";
+            else if (previousView === 'search') clearViewBtn.innerHTML = "&larr; Back to Search";
+            else clearViewBtn.innerHTML = "&larr; Back to Dashboard";
+            clearViewBtn.classList.remove('hidden');
+
+            let orders = parsedData.filter(r => r.owing > 0.001 && r.displayName === customerName);
+            orders = sortRecords(orders, sortSelect.value);
+
+            let totalOwing = orders.reduce((sum, r) => sum + r.owing, 0);
+
+            // Enable Print UI Elements
+            document.getElementById('printHeader').classList.remove('hidden');
+            document.getElementById('customerSummary').classList.remove('hidden');
+            document.getElementById('displayCompanyName').textContent = customerName;
+            document.getElementById('displayTotalOwing').textContent = formatCurrency(totalOwing);
+            
+            printBtn.disabled = false;
+            printBtn.classList.remove('bg-gray-300', 'text-gray-500');
+            printBtn.classList.add('bg-forest-green', 'text-white', 'hover:bg-river-teal', 'shadow-md');
+
+            tableHead.innerHTML = `
+                <tr class="bg-forest-green text-white text-xs md:text-sm uppercase tracking-wider">
+                    <th class="p-3 md:p-4 font-semibold whitespace-nowrap">Date</th>
+                    <th class="p-3 md:p-4 font-semibold whitespace-nowrap">Ref / Inv</th>
+                    <th class="p-3 md:p-4 font-semibold text-right whitespace-nowrap">Total</th>
+                    <th class="p-3 md:p-4 font-semibold text-right whitespace-nowrap">Paid</th>
+                    <th class="p-3 md:p-4 font-semibold text-right whitespace-nowrap text-accent-gold">Owing</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Age</th>
+                </tr>
+            `;
+
+            tableBody.innerHTML = '';
+            orders.forEach(r => {
+                let ageStyle = r.ageDays > 60 ? "text-red-600 font-bold bg-red-50/50" : "text-gray-500";
+                tableBody.innerHTML += `
+                    <tr class="border-b border-gray-100 hover:bg-gray-50">
+                        <td class="p-3 md:p-4 whitespace-nowrap text-gray-600">${r.display}</td>
+                        <td class="p-3 md:p-4 font-medium">${r.ref}</td>
+                        <td class="p-3 md:p-4 text-right text-gray-500">${formatCurrency(r.totalIncl)}</td>
+                        <td class="p-3 md:p-4 text-right text-gray-500">${formatCurrency(r.paidAmount)}</td>
+                        <td class="p-3 md:p-4 text-right font-bold text-red-600 bg-red-50/20">${formatCurrency(r.owing)}</td>
+                        <td class="p-3 md:p-4 text-center ${ageStyle}">${r.ageString}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        function resetPrintUI() {
+            document.getElementById('printHeader').classList.add('hidden');
+            document.getElementById('customerSummary').classList.add('hidden');
+            printBtn.disabled = true;
+            printBtn.classList.add('bg-gray-300', 'text-gray-500');
+            printBtn.classList.remove('bg-forest-green', 'text-white', 'hover:bg-river-teal', 'shadow-md');
+        }
+
+        // Search logic
+        searchInput.addEventListener('input', handleSearch);
+        function handleSearch() {
+            const query = searchInput.value.toLowerCase().trim();
+            if (query.length === 0) {
+                if (viewMode !== 'none') applySort(); 
+                else mainContentArea.classList.add('hidden');
+                return;
+            }
+            
+            viewMode = 'search';
+            previousView = 'none';
+            resetPrintUI();
+            mainContentArea.classList.remove('hidden');
+            viewTitle.textContent = `Search Results: "${query}"`;
+            clearViewBtn.innerHTML = "&larr; Back to Dashboard";
+            clearViewBtn.classList.remove('hidden');
+
+            let results = parsedData.filter(r => r.owing > 0.001 && r.searchStr.includes(query));
+            results = sortRecords(results, sortSelect.value);
+
+            tableHead.innerHTML = `
+                <tr class="bg-river-teal text-white text-xs md:text-sm uppercase tracking-wider">
+                    <th class="p-3 md:p-4 font-semibold whitespace-nowrap">Customer</th>
+                    <th class="p-3 md:p-4 font-semibold whitespace-nowrap">Ref / Inv</th>
+                    <th class="p-3 md:p-4 font-semibold text-right whitespace-nowrap text-accent-gold">Owing</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Age</th>
+                    <th class="p-3 md:p-4 font-semibold text-center whitespace-nowrap">Action</th>
+                </tr>
+            `;
+
+            tableBody.innerHTML = '';
+            if (results.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-500">No matching orders found.</td></tr>`;
+                return;
+            }
+
+            results.forEach(r => {
+                let ageStyle = r.ageDays > 60 ? "text-red-600 font-bold" : "text-gray-500";
+                tableBody.innerHTML += `
+                    <tr onclick="viewStatement('${r.displayName.replace(/'/g, "\\'")}', 'search')" class="cursor-pointer border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td class="p-3 md:p-4 font-semibold text-forest-dark">${r.displayName}</td>
+                        <td class="p-3 md:p-4">${r.ref}</td>
+                        <td class="p-3 md:p-4 text-right font-bold text-red-600">${formatCurrency(r.owing)}</td>
+                        <td class="p-3 md:p-4 text-center ${ageStyle}">${r.ageString}</td>
+                        <td class="p-3 md:p-4 text-center">
+                            <button class="pointer-events-none text-xs bg-river-teal text-white px-3 py-1.5 rounded-lg transition-colors">Statement</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Bucket Interaction
+        function selectBucket(bucketId) {
+            document.querySelectorAll('.bucket-btn').forEach(btn => {
+                btn.classList.remove('ring-2', 'ring-offset-2', 'ring-forest-dark', 'scale-105', 'shadow-md');
+                btn.style.opacity = '0.6';
+            });
+
+            if (!bucketId) {
+                activeBucket = null;
+                document.getElementById('bucketTitle').textContent = "Select a bucket above to view orders.";
+                document.getElementById('bucketOrdersList').innerHTML = '<div class="h-full flex items-center justify-center text-gray-400 text-sm italic">No bucket selected.</div>';
+                document.querySelectorAll('.bucket-btn').forEach(b => b.style.opacity = '1');
+                return;
+            }
+
+            activeBucket = bucketId;
+            const activeBtn = document.getElementById(`btn-${bucketId}`);
+            activeBtn.style.opacity = '1';
+            activeBtn.classList.add('ring-2', 'ring-offset-2', 'ring-forest-dark', 'scale-105', 'shadow-md');
+            
+            document.getElementById('bucketTitle').textContent = `Orders in ${bucketId} Bucket`;
+            renderBucketOrders();
+        }
+
+        function renderBucketOrders() {
+            if (!activeBucket) return;
+            const listContainer = document.getElementById('bucketOrdersList');
+            
+            let orders = parsedData.filter(r => r.owing > 0.001 && r.bucket === activeBucket);
+            orders = sortRecords(orders, sortSelect.value);
+
+            if (orders.length === 0) {
+                listContainer.innerHTML = '<div class="p-4 text-center text-gray-400 text-sm">No unpaid orders in this timeframe.</div>';
+                return;
+            }
+
+            listContainer.innerHTML = '';
+            orders.forEach(r => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left p-3 rounded-lg bg-white border border-gray-200 hover:border-river-teal hover:shadow-md transition-all flex justify-between items-center group";
+                btn.onclick = () => viewStatement(r.displayName, 'dashboard');
+                
+                let textColor = r.ageDays > 60 ? 'text-red-600' : 'text-forest-dark';
+                
+                btn.innerHTML = `
+                    <div class="truncate mr-2 flex-1">
+                        <p class="text-sm font-bold ${textColor} truncate group-hover:text-river-teal transition-colors">${r.displayName}</p>
+                        <p class="text-xs text-gray-500 font-medium">Ref: ${r.ref} <span class="mx-1">•</span> ${r.ageString}</p>
+                    </div>
+                    <div class="text-right flex-shrink-0">
+                        <p class="text-sm font-black ${textColor}">${formatCurrency(r.owing)}</p>
+                    </div>
+                `;
+                listContainer.appendChild(btn);
+            });
+        }
+    </script>
+</body>
+</html>
